@@ -5,6 +5,8 @@ let axios = require('axios')
   , extract = require('extract-zip')
   , { retry } = require('async')
   , { createWriteStream, mkdirSync, rmdirSync } = require('fs')
+  , fs = require('fs')
+  , path = require('path')
   , { join } = require('path')
   , notionAPI = 'https://www.notion.so/api/v3'
   , { NOTION_TOKEN, NOTION_SPACE_ID } = process.env
@@ -102,6 +104,24 @@ async function exportFromNotion (format) {
   }
 }
 
+function findAllZipFiles(dirPath) {
+  const zipFiles = [];
+  const files = fs.readdirSync(dirPath);
+  for (const file of files) {
+    const filePath = path.join(dirPath, file);
+    const stat = fs.statSync(filePath);
+    if (stat.isDirectory()) {
+      // 如果是子目录，递归查找
+      const subZipFiles = findAllZipFiles(filePath);
+      zipFiles.push(...subZipFiles);
+    } else if (path.extname(filePath) === '.zip') {
+      // 如果是.zip文件，将文件路径保存到数组中
+      zipFiles.push(filePath);
+    }
+  }
+  return zipFiles;
+}
+
 async function run () {
   let cwd = process.cwd()
     , mdDir = join(cwd, 'markdown')
@@ -113,10 +133,21 @@ async function run () {
   rmdirSync(mdDir, { recursive: true });
   mkdirSync(mdDir, { recursive: true });
   await extract(mdFile, { dir: mdDir });
+  const mdZipFiles = findAllZipFiles(mdDir);
+  for (const mdZipFile of mdZipFiles) {
+    await extract(mdZipFile, { dir: mdDir });
+  }
   await exportFromNotion('html');
   rmdirSync(htmlDir, { recursive: true });
   mkdirSync(htmlDir, { recursive: true });
   await extract(htmlFile, { dir: htmlDir });
+  const htmlZipFiles = findAllZipFiles(htmlDir);
+  for (const htmlZipFile of htmlZipFiles) {
+    await extract(htmlZipFile, { dir: htmlDir });
+  }
+  [...htmlZipFiles, ...mdZipFiles].forEach((file) => {
+    fs.unlinkSync(file);
+  })
 }
 
 run();
